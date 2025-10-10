@@ -1,0 +1,145 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Malware Analysis Platform Design System - Dark Theme
+All colors MUST be HSL for proper theme support.
+*/
+
+@layer base {
+  :root {
+    /* Dark cybersecurity theme */
+    --background: 220 13% 11%; /* #1C1C1E */
+    --background-secondary: 220 13% 17%; /* #2B2B2E */
+    --background-tertiary: 220 13% 14%; /* #242426 */
+    --foreground: 210 40% 98%; /* Near white text */
+
+    --card: 220 13% 14%; /* #242426 */
+    --card-foreground: 210 40% 95%;
+
+    --popover: 220 13% 17%; /* #2B2B2E */
+    --popover-foreground: 210 40% 98%;
+
+    /* Cybersecurity teal accent system */
+    --primary: 189 94% 41%; /* #06B6D4 - Teal accent */
+    --primary-foreground: 220 13% 11%;
+    --primary-glow: 189 94% 50%; /* Brighter teal for glows */
+
+    --secondary: 220 13% 20%; /* Subtle secondary */
+    --secondary-foreground: 210 40% 85%;
+
+    --muted: 220 13% 17%; /* #2B2B2E */
+    --muted-foreground: 215 16% 65%; /* Muted text */
+
+    --accent: 189 94% 41%; /* Same as primary - teal */
+    --accent-foreground: 220 13% 11%;
+
+    --destructive: 0 84% 60%; /* Red for warnings */
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 13% 25%; /* Subtle borders */
+    --input: 220 13% 17%; /* Input backgrounds */
+    --ring: 189 94% 41%; /* Focus ring - teal */
+
+    --radius: 0.75rem; /* Slightly more rounded */
+
+    /* Custom cybersecurity gradients */
+    --gradient-bg: linear-gradient(135deg, hsl(220 13% 11%), hsl(220 13% 17%));
+    --gradient-accent: linear-gradient(135deg, hsl(189 94% 41%), hsl(189 94% 50%));
+    --gradient-subtle: linear-gradient(180deg, hsl(220 13% 14%), hsl(220 13% 11%));
+
+    /* Glow effects */
+    --glow-primary: 0 0 20px hsl(189 94% 41% / 0.3);
+    --glow-soft: 0 0 10px hsl(189 94% 41% / 0.2);
+
+    /* Animation variables */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-fast: all 0.15s ease-out;
+
+    --sidebar-background: 220 13% 17%;
+    --sidebar-foreground: 210 40% 95%;
+    --sidebar-primary: 189 94% 41%;
+    --sidebar-primary-foreground: 220 13% 11%;
+    --sidebar-accent: 220 13% 20%;
+    --sidebar-accent-foreground: 210 40% 85%;
+    --sidebar-border: 220 13% 25%;
+    --sidebar-ring: 189 94% 41%;
+  }
+
+  /* Apply dark theme by default */
+  .dark {
+    --background: 220 13% 11%;
+    --background-secondary: 220 13% 17%;
+    --background-tertiary: 220 13% 14%;
+    --foreground: 210 40% 98%;
+
+    --card: 220 13% 14%;
+    --card-foreground: 210 40% 95%;
+
+    --popover: 220 13% 17%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 189 94% 41%;
+    --primary-foreground: 220 13% 11%;
+    --primary-glow: 189 94% 50%;
+
+    --secondary: 220 13% 20%;
+    --secondary-foreground: 210 40% 85%;
+
+    --muted: 220 13% 17%;
+    --muted-foreground: 215 16% 65%;
+
+    --accent: 189 94% 41%;
+    --accent-foreground: 220 13% 11%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 13% 25%;
+    --input: 220 13% 17%;
+    --ring: 189 94% 41%;
+    --sidebar-background: 220 13% 17%;
+    --sidebar-foreground: 210 40% 95%;
+    --sidebar-primary: 189 94% 41%;
+    --sidebar-primary-foreground: 220 13% 11%;
+    --sidebar-accent: 220 13% 20%;
+    --sidebar-accent-foreground: 210 40% 85%;
+    --sidebar-border: 220 13% 25%;
+    --sidebar-ring: 189 94% 41%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    /* Force dark theme */
+    @apply dark;
+  }
+
+  /* Smooth transitions for all interactive elements */
+  button, input, select, textarea {
+    @apply transition-all duration-200;
+  }
+
+  /* Custom scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--background-secondary));
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 3px;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--primary));
+  }
+}

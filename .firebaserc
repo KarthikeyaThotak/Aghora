@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "aghora-staging": "aghora-c506a",
+    "default": "aghora-c506a"
+  },
+  "targets": {},
+  "etags": {}
+}
