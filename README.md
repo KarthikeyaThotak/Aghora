@@ -59,6 +59,56 @@ This project is built with:
 - React
 - shadcn-ui
 - Tailwind CSS
+- Python (Chart Agent - optional backend service)
+
+## Python Chart Agent
+
+The project includes a Python agent that can communicate with the frontend chart interface. This allows you to programmatically update graphs, add nodes, and manage connections.
+
+### Quick Start
+
+1. **Install Python dependencies:**
+   ```bash
+   cd python_agent
+   pip install -r requirements.txt
+   ```
+
+2. **Start the server:**
+   ```bash
+   # Linux/Mac
+   ./start_server.sh
+   
+   # Windows
+   start_server.bat
+   
+   # Or directly
+   python server.py
+   ```
+
+3. **Use the agent in Python:**
+   ```python
+   from agent import ChartAgent
+   
+   agent = ChartAgent(session_id="my_session")
+   agent.add_node(
+       node_id="node1",
+       node_type="file",
+       label="malware.exe",
+       x=200, y=150
+   )
+   ```
+
+4. **Use in React:**
+   ```typescript
+   import { useChartAgent } from '@/hooks/useChartAgent';
+   
+   const { updateGraph, connected } = useChartAgent({
+     baseUrl: 'http://localhost:8000',
+     sessionId: 'my_session'
+   });
+   ```
+
+See `python_agent/README.md` for detailed documentation.
 
 ## How can I deploy this project?
 

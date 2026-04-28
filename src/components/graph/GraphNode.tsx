@@ -1,207 +1,271 @@
 import React from "react";
-import { FileText, Network, HardDrive, Shield, AlertTriangle, Zap, Crown } from "lucide-react";
 import { GraphNodeProps, NodeType, RiskLevel } from "@/types/graph";
 import { truncateFileName } from "@/lib/hashUtils";
+import {
+  Globe, Network, Database, FileText, Shield, Settings,
+  AlertTriangle, Code2, Lock, Cpu, Layers, LucideIcon,
+} from "lucide-react";
 
-const getNodeIcon = (type: NodeType) => {
+// ── Color palette by node type ─────────────────────────────────────────────────
+export const NODE_COLORS: Record<NodeType, string> = {
+  main:     "#dc2626",  // red      — primary threat
+  network:  "#3b82f6",  // blue     — C2 / network IOC
+  registry: "#f59e0b",  // amber    — registry persistence
+  file:     "#f59e0b",  // amber    — file artifact
+  persist:  "#f97316",  // orange   — persistence cluster
+  api:      "#8b5cf6",  // violet   — Win32 API
+  inject:   "#ef4444",  // bright red — injection
+  crypto:   "#10b981",  // emerald  — encryption
+  section:  "#06b6d4",  // cyan     — PE section
+  threat:   "#e11d48",  // rose     — generic threat
+  process:  "#a78bfa",  // lavender — process
+  system:   "#64748b",  // slate    — system
+};
+
+// ── Node radius by risk level ──────────────────────────────────────────────────
+export function getNodeRadius(risk: RiskLevel, isMain?: boolean): number {
+  if (isMain) return 42;
+  switch (risk) {
+    case "critical": return 30;
+    case "high":     return 26;
+    case "medium":   return 22;
+    default:         return 18;
+  }
+}
+
+// ── SVG shape generators (all centered at 0,0) ────────────────────────────────
+function hexPath(r: number): string {
+  const pts = Array.from({ length: 6 }, (_, i) => {
+    const a = (Math.PI / 3) * i - Math.PI / 6;
+    return `${(r * Math.cos(a)).toFixed(2)},${(r * Math.sin(a)).toFixed(2)}`;
+  });
+  return `M ${pts.join(" L ")} Z`;
+}
+function diamondPath(r: number): string {
+  const w = (r * 0.72).toFixed(2);
+  return `M 0,${-r} L ${w},0 L 0,${r} L ${-w},0 Z`;
+}
+function squarePath(r: number): string {
+  const s = (r * 0.84).toFixed(2);
+  const c = (r * 0.18).toFixed(2); // corner cut
+  return `M ${-s},${-(+s - +c)} L ${-(+s - +c)},${-s} L ${+s - +c},${-s} L ${s},${-(+s - +c)} L ${s},${+s - +c} L ${+s - +c},${s} L ${-(+s - +c)},${s} L ${-s},${+s - +c} Z`;
+}
+function pentPath(r: number): string {
+  const pts = Array.from({ length: 5 }, (_, i) => {
+    const a = (Math.PI * 2 / 5) * i - Math.PI / 2;
+    return `${(r * Math.cos(a)).toFixed(2)},${(r * Math.sin(a)).toFixed(2)}`;
+  });
+  return `M ${pts.join(" L ")} Z`;
+}
+function triPath(r: number): string {
+  return `M 0,${(-r).toFixed(2)} L ${(r * 0.87).toFixed(2)},${(r * 0.5).toFixed(2)} L ${(-r * 0.87).toFixed(2)},${(r * 0.5).toFixed(2)} Z`;
+}
+
+function getShape(type: NodeType, r: number): string {
   switch (type) {
-    case "file": return FileText;
-    case "network": return Network;
-    case "registry": return HardDrive;
-    case "process": return Zap;
-    case "threat": return AlertTriangle;
-    case "system": return Shield;
-    case "main": return Crown;
-    default: return FileText;
+    case "main":     return hexPath(r);
+    case "network":  return diamondPath(r);
+    case "registry": return squarePath(r);
+    case "file":     return squarePath(r);
+    case "persist":  return squarePath(r);
+    case "section":  return squarePath(r);
+    case "api":      return hexPath(r);
+    case "inject":   return pentPath(r);
+    case "process":  return pentPath(r);
+    case "crypto":   return triPath(r);
+    case "threat":   return triPath(r);
+    default:         return hexPath(r);
   }
+}
+
+// ── Short type tags shown inside each node ─────────────────────────────────────
+const TYPE_TAG: Partial<Record<NodeType, string>> = {
+  main:     "⚠",
+  network:  "⬡",
+  registry: "REG",
+  file:     "FILE",
+  persist:  "PERS",
+  api:      "API",
+  inject:   "INJ",
+  crypto:   "ENC",
+  section:  "SEC",
+  threat:   "THR",
+  process:  "PRC",
+  system:   "SYS",
 };
 
-const getNodeColor = (riskLevel: RiskLevel) => {
-  switch (riskLevel) {
-    case "critical": return "hsl(0 84% 60%)"; // destructive
-    case "high": return "hsl(25 95% 53%)"; // orange
-    case "medium": return "hsl(45 93% 47%)"; // yellow  
-    case "low": return "hsl(142 76% 36%)"; // green
-    default: return "hsl(var(--muted-foreground))"; // muted
-  }
-};
-
+// ── Component ─────────────────────────────────────────────────────────────────
 export const GraphNode: React.FC<GraphNodeProps> = ({
-  node,
-  isSelected,
-  isHovered,
-  isDragged,
-  scale,
-  onSelect,
-  onDrag,
-  onHover,
-  onMouseDown,
+  node, isSelected, isHovered, isDragged,
+  scale, onSelect, onDrag, onHover, onMouseDown,
 }) => {
-  const Icon = getNodeIcon(node.type);
-  const nodeColor = getNodeColor(node.details.riskLevel);
+  const color  = NODE_COLORS[node.type] ?? "#64748b";
+  const r      = getNodeRadius(node.details.riskLevel, node.isMainNode);
+  const shape  = getShape(node.type, r);
+  const isCrit = node.details.riskLevel === "critical" || node.isMainNode;
+  const isHigh = node.details.riskLevel === "high";
+  const tag    = TYPE_TAG[node.type] ?? node.type.slice(0, 3).toUpperCase();
 
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onSelect(node);
-  };
-
-  const handleMouseEnter = () => {
-    onHover(node.id);
-  };
-
-  const handleMouseLeave = () => {
-    onHover(null);
-  };
+  const rawLabel = node.isMainNode && node.fileName
+    ? truncateFileName(node.fileName, 16)
+    : node.label;
+  const label = rawLabel.length > 15 ? rawLabel.slice(0, 14) + "…" : rawLabel;
 
   return (
-    <g
-      transform={`translate(${node.x}, ${node.y})`}
-      className={`cursor-pointer transition-all duration-300 ease-smooth ${isDragged ? 'cursor-grabbing' : 'cursor-grab'}`}
-      style={{ 
-        transformOrigin: '0 0',
-        transform: `translate(${node.x}px, ${node.y}px) scale(${isHovered && !isDragged ? 1.15 : isSelected ? 1.05 : 1})`,
-        transition: isDragged ? 'none' : 'transform 0.2s ease-out'
-      }}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+    // Outer group — positioned at node coords via SVG transform
+    <g transform={`translate(${node.x},${node.y})`}
+      onMouseEnter={() => onHover(node.id)}
+      onMouseLeave={() => onHover(null)}
       onMouseDown={(e) => onMouseDown(e, node.id)}
-      onClick={handleClick}
+      onClick={(e) => { e.stopPropagation(); onSelect(node); }}
+      style={{ cursor: isDragged ? "grabbing" : "pointer" }}
     >
-      {/* Outer glow effect */}
-      <circle
-        cx="0"
-        cy="0"
-        r={isHovered && !isDragged ? "40" : "35"}
-        fill={nodeColor}
-        opacity={isHovered && !isDragged ? "0.3" : "0.2"}
-        className={isHovered && !isDragged ? "animate-pulse" : ""}
-        style={{
-          filter: isHovered && !isDragged ? `blur(2px)` : 'blur(1px)',
-          transition: isDragged ? 'none' : 'all 0.2s ease'
-        }}
-      />
-      
-      {/* Middle glow */}
-      {isHovered && !isDragged && (
-        <circle
-          cx="0"
-          cy="0"
-          r="30"
-          fill={nodeColor}
-          opacity="0.4"
-          style={{ filter: 'blur(1px)' }}
+      {/* Inner group — scale effect centered at node origin (0,0) */}
+      <g style={{
+        transform: `scale(${isHovered && !isDragged ? 1.18 : isSelected ? 1.06 : 1})`,
+        transition: isDragged ? "none" : "transform 0.2s cubic-bezier(.34,1.56,.64,1)",
+        transformOrigin: "0 0",
+      }}>
+
+        {/* === Outer ambient glow (always present, intensity by risk) === */}
+        <circle cx="0" cy="0" r={r + 22}
+          fill={color}
+          opacity={isCrit ? 0.12 : isHigh ? 0.08 : 0.04}
+          style={{ filter: "blur(10px)" }}
         />
-      )}
-      
-      {/* Node background */}
-      <circle
-        cx="0"
-        cy="0"
-        r="25"
-        fill="hsl(var(--card))"
-        stroke={nodeColor}
-        strokeWidth={isSelected ? "4" : "3"}
-        className="transition-all duration-300"
-        style={{
-          filter: isHovered || isDragged ? `drop-shadow(0 0 15px ${nodeColor})` : 
-                  isSelected ? `drop-shadow(0 0 8px ${nodeColor})` : 'none'
-        }}
-      />
-      
-      {/* Selection ring */}
-      {isSelected && (
-        <circle
-          cx="0"
-          cy="0"
-          r="30"
-          fill="none"
-          stroke={nodeColor}
-          strokeWidth="2"
-          strokeDasharray="4 4"
-          opacity="0.8"
-          className="animate-spin"
-          style={{ animationDuration: '3s' }}
-        />
-      )}
-      
-      {/* Node icon */}
-      <foreignObject 
-        x="-12" 
-        y="-12" 
-        width="24" 
-        height="24" 
-        className="pointer-events-none transition-all duration-300"
-        style={{
-          transform: isHovered || isDragged ? 'scale(1.2)' : 'scale(1)',
-          filter: isHovered || isDragged ? `drop-shadow(0 0 5px ${nodeColor})` : 'none'
-        }}
-      >
-        <Icon
-          className="w-6 h-6 transition-all duration-300"
-          style={{ 
-            color: nodeColor,
-            filter: isHovered || isDragged ? 'brightness(1.3)' : 'brightness(1)'
+
+        {/* === Critical/main nodes: animated concentric rings === */}
+        {isCrit && (
+          <>
+            <circle cx="0" cy="0" r={r + 18} fill="none"
+              stroke={color} strokeWidth="1" opacity="0.3"
+              style={{ animation: "ringPulse 2.4s ease-in-out infinite" }} />
+            <circle cx="0" cy="0" r={r + 30} fill="none"
+              stroke={color} strokeWidth="0.5" opacity="0.15"
+              style={{ animation: "ringPulse 2.4s ease-in-out infinite 0.8s" }} />
+          </>
+        )}
+
+        {/* High nodes: single soft ring */}
+        {isHigh && !isCrit && (
+          <circle cx="0" cy="0" r={r + 14} fill="none"
+            stroke={color} strokeWidth="1" opacity="0.2"
+            style={{ animation: "ringPulse 3s ease-in-out infinite" }} />
+        )}
+
+        {/* === Hover / select glow boost === */}
+        {(isHovered || isSelected) && (
+          <circle cx="0" cy="0" r={r + 8}
+            fill={color} opacity="0.22"
+            style={{ filter: "blur(5px)" }} />
+        )}
+
+        {/* === Node body === */}
+        <path
+          d={shape}
+          fill={`${color}14`}
+          stroke={color}
+          strokeWidth={isSelected ? 3.5 : isHovered ? 2.8 : node.isMainNode ? 2.5 : 2}
+          style={{
+            filter: isHovered || isDragged
+              ? `drop-shadow(0 0 18px ${color})`
+              : isSelected
+              ? `drop-shadow(0 0 10px ${color})`
+              : isCrit
+              ? `drop-shadow(0 0 5px ${color}88)`
+              : "none",
+            transition: isDragged ? "none" : "all 0.2s ease",
           }}
         />
-      </foreignObject>
-      
-      {/* Node label */}
-      <text
-        x="0"
-        y="45"
-        textAnchor="middle"
-        className="fill-foreground font-medium pointer-events-none select-none transition-all duration-300"
-        style={{ 
-          fontSize: isHovered || isDragged ? "14px" : "12px",
-          filter: isHovered || isDragged ? `drop-shadow(0 0 3px hsl(var(--foreground)))` : 'none'
-        }}
-      >
-        {node.isMainNode && node.fileName 
-          ? truncateFileName(node.fileName, 15)
-          : node.label.length > 15 ? node.label.slice(0, 15) + "..." : node.label
-        }
-      </text>
-      
-      {/* Hover tooltip */}
-      {isHovered && (
-        <g>
-          <rect
-            x="-60"
-            y="-80"
-            width="120"
-            height="30"
-            fill="hsl(var(--popover))"
-            stroke="hsl(var(--border))"
-            strokeWidth="1"
-            rx="6"
-            className="animate-fade-in"
-            style={{
-              filter: 'drop-shadow(0 4px 6px rgb(0 0 0 / 0.1))'
-            }}
+
+        {/* === Selected: spinning dashed orbit === */}
+        {isSelected && (
+          <circle cx="0" cy="0" r={r + 10}
+            fill="none" stroke={color} strokeWidth="1.5"
+            strokeDasharray="6 5" opacity="0.7"
+            style={{ animation: "spin 5s linear infinite", transformOrigin: "0 0" }}
           />
-          <text
-            x="0"
-            y="-68"
-            textAnchor="middle"
-            className="fill-popover-foreground text-xs font-medium pointer-events-none select-none"
-            style={{ fontSize: "10px" }}
-          >
-            {node.details.riskLevel.toUpperCase()}
-          </text>
-          <text
-            x="0"
-            y="-58"
-            textAnchor="middle"
-            className="fill-muted-foreground text-xs pointer-events-none select-none"
-            style={{ fontSize: "9px" }}
-          >
-            Click to select
-          </text>
-        </g>
-      )}
+        )}
+
+        {/* === Type tag inside the shape === */}
+        <text x="0" y="1"
+          textAnchor="middle" dominantBaseline="middle"
+          fill={color}
+          style={{
+            fontSize: `${Math.max(7, r * 0.3)}px`,
+            fontFamily: "monospace",
+            fontWeight: 700,
+            letterSpacing: "0.04em",
+            pointerEvents: "none",
+            userSelect: "none",
+            opacity: 0.95,
+          }}
+        >
+          {tag}
+        </text>
+
+        {/* === Label below node === */}
+        <text x="0" y={r + 15}
+          textAnchor="middle"
+          fill="hsl(var(--foreground))"
+          style={{
+            fontSize: isHovered ? "12px" : "11px",
+            fontWeight: isHovered ? 600 : 500,
+            transition: "font-size 0.15s ease",
+            pointerEvents: "none",
+            userSelect: "none",
+          }}
+        >
+          {label}
+        </text>
+
+        {/* === Hover tooltip === */}
+        {isHovered && (
+          <g>
+            <rect x="-62" y={-(r + 38)} width="124" height="24" rx="5"
+              fill="hsl(var(--popover))"
+              stroke={color} strokeWidth="1"
+              style={{ filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.5))" }}
+            />
+            <text x="0" y={-(r + 26)}
+              textAnchor="middle"
+              fill="hsl(var(--popover-foreground))"
+              style={{ fontSize: "10px", fontWeight: 600, pointerEvents: "none", userSelect: "none" }}
+            >
+              {node.details.riskLevel.toUpperCase()} · {node.type.toUpperCase()}
+            </text>
+          </g>
+        )}
+      </g>
     </g>
   );
 };
 
-// Export utility functions for use in other components
-export { getNodeIcon, getNodeColor };
+// ── Icon map by node type (used by detail panels) ────────────────────────────
+export const getNodeIcon = (type: NodeType): LucideIcon => {
+  switch (type) {
+    case "main":     return AlertTriangle;
+    case "network":  return Globe;
+    case "registry": return Database;
+    case "file":     return FileText;
+    case "persist":  return Shield;
+    case "api":      return Code2;
+    case "inject":   return Cpu;
+    case "crypto":   return Lock;
+    case "section":  return Layers;
+    case "threat":   return AlertTriangle;
+    case "process":  return Settings;
+    case "system":   return Network;
+    default:         return FileText;
+  }
+};
+
+// Legacy export for GraphCanvas connection coloring
+export const getNodeColor = (risk: RiskLevel): string => {
+  switch (risk) {
+    case "critical": return "#dc2626";
+    case "high":     return "#f97316";
+    case "medium":   return "#eab308";
+    default:         return "#22c55e";
+  }
+};

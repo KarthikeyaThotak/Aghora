@@ -1,7 +1,13 @@
 import { LucideIcon } from "lucide-react";
 
-export type NodeType = "file" | "network" | "registry" | "process" | "threat" | "system" | "main";
+export type NodeType =
+  | "file" | "network" | "registry" | "process" | "threat" | "system" | "main"
+  | "api" | "crypto" | "inject" | "persist" | "section";
 export type RiskLevel = "low" | "medium" | "high" | "critical";
+export type ConnectionFlowType =
+  | "direct" | "bidirectional"
+  | "network" | "injection" | "persistence"
+  | "api" | "section" | "crypto";
 
 export interface GraphNode {
   id: string;
@@ -24,7 +30,7 @@ export interface GraphConnection {
   id: string;
   sourceId: string;
   targetId: string;
-  type?: "direct" | "bidirectional";
+  type?: ConnectionFlowType;
   weight?: number;
 }
 

@@ -1,428 +1,331 @@
-import { useState } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
+/**
+ * PreviousAnalysis — fetches session history from the local Python backend
+ * (SQLite database) instead of Firebase/Firestore.
+ */
+
+import { useState, useEffect, useCallback } from "react";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "./ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { Eye, Download, Trash2, Edit3, Check, X, Loader2, FileText } from "lucide-react";
-import { z } from "zod";
-import { useFirestore } from "@/hooks/useFirestore";
-import { FileMetadata } from "@/lib/firestoreService";
-import { useToast } from "@/hooks/use-toast";
-import { IndividualReport } from "./IndividualReport";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
+  Eye, Trash2, Edit3, Check, X, Loader2, RefreshCcw, Database,
+} from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "./ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
+import { API_BASE_URL } from "@/hooks/useChartAgent";
 
-interface AnalysisReport {
+// ── Types ────────────────────────────────────────────────────────────────────
+
+interface Session {
   id: string;
-  date: string;
-  caseName: string;
-  fileHash: string;
-  threatLevel: "Low" | "Medium" | "High" | "Critical";
-  status: "Completed" | "Processing" | "Failed";
-  detections: number;
-  size: string;
-  analysisSessionId?: string; // Link to analysis session for graph view
+  file_name: string;
+  file_size: number;
+  sha256_hash: string;
+  threat_level: string;
+  threat_summary: string;
+  key_findings: string[];
+  iocs: Record<string, string[]>;
+  behavioral: string;
+  recommendations: string[];
+  status: string;
+  created_at: string;
+  log_directory: string;
 }
 
 interface PreviousAnalysisProps {
-  onSelectReport?: (report: AnalysisReport) => void;
+  onSelectReport?: (report: {
+    caseName?: string;
+    fileHash?: string;
+    analysisSessionId?: string;
+  }) => void;
 }
 
-// Validation schema for case name
-const caseNameSchema = z.string()
-  .trim()
-  .min(1, { message: "Case name cannot be empty" })
-  .max(100, { message: "Case name must be less than 100 characters" })
-  .regex(/^[a-zA-Z0-9\s\-_\.]+$/, { message: "Case name can only contain letters, numbers, spaces, hyphens, underscores, and periods" });
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const formatSize = (bytes: number) => {
+  if (!bytes) return "—";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+};
+
+const formatDate = (iso: string) => {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString([], {
+    month: "short", day: "numeric", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+};
+
+const threatVariant = (level: string) => {
+  switch (level?.toLowerCase()) {
+    case "critical": return "destructive";
+    case "high":     return "destructive";
+    case "medium":   return "secondary";
+    default:         return "outline";
+  }
+};
+
+const threatColor = (level: string) => {
+  switch (level?.toLowerCase()) {
+    case "critical": return "text-red-500";
+    case "high":     return "text-orange-500";
+    case "medium":   return "text-yellow-500";
+    case "low":      return "text-green-500";
+    default:         return "text-muted-foreground";
+  }
+};
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export const PreviousAnalysis = ({ onSelectReport }: PreviousAnalysisProps) => {
-  const [selectedReport, setSelectedReport] = useState<string | null>(null);
-  const [editingReport, setEditingReport] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState<string>("");
-  const [viewingReport, setViewingReport] = useState<AnalysisReport | null>(null);
-  
-  // Use Firestore hook for real-time data
-  const { files, loading, error, updateFile, deleteFile } = useFirestore();
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [editing, setEditing]   = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
   const { toast } = useToast();
 
-  // Helper function to format file size
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
+  // ── Fetch sessions from backend ──────────────────────────────────────────
 
-  // Helper function to format date
-  const formatDate = (timestamp: any) => {
-    if (!timestamp) return 'Unknown';
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleDateString();
-  };
-
-  // Convert FileMetadata to AnalysisReport
-  const convertToAnalysisReport = (file: FileMetadata): AnalysisReport => ({
-    id: file.id,
-    date: formatDate(file.uploadTime),
-    caseName: file.name, // Use filename as case name
-    fileHash: file.sha256Hash || 'N/A',
-    threatLevel: "Low", // Default threat level
-    status: file.status === 'processing' ? 'Processing' : 
-            file.status === 'analyzed' ? 'Completed' : 'Failed',
-    detections: 0, // Default detections
-    size: formatFileSize(file.size),
-    analysisSessionId: file.analysisSessionId // Include analysis session ID
-  });
-
-  // Convert files to reports
-  const reports = files.map(convertToAnalysisReport);
-
-  const getThreatLevelVariant = (level: string) => {
-    switch (level) {
-      case "Critical": return "destructive";
-      case "High": return "destructive";
-      case "Medium": return "secondary";
-      case "Low": return "outline";
-      default: return "outline";
-    }
-  };
-
-  const getStatusVariant = (status: string) => {
-    switch (status) {
-      case "Completed": return "default";
-      case "Processing": return "secondary";
-      case "Failed": return "destructive";
-      default: return "outline";
-    }
-  };
-
-  const handleRowClick = (report: AnalysisReport) => {
-    setSelectedReport(report.id);
-    onSelectReport?.(report);
-  };
-
-  const handleViewReport = (report: AnalysisReport, e: React.MouseEvent) => {
-    e.stopPropagation();
-    onSelectReport?.(report);
-  };
-
-  const handleViewIndividualReport = (report: AnalysisReport, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setViewingReport(report);
-  };
-
-  const handleCloseIndividualReport = () => {
-    setViewingReport(null);
-  };
-
-  const handleEditCaseName = (report: AnalysisReport, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditingReport(report.id);
-    setEditValue(report.caseName);
-  };
-
-  const handleSaveCaseName = async (reportId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    
-    const validation = caseNameSchema.safeParse(editValue);
-    if (!validation.success) {
-      toast({
-        title: "Validation Error",
-        description: validation.error.issues[0].message,
-        variant: "destructive",
-      });
-      return;
-    }
-    
+  const loadSessions = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      console.log('Updating case name for file:', reportId, 'to:', validation.data);
-      // Update the file name in Firestore
-      await updateFile(reportId, { name: validation.data });
-      setEditingReport(null);
+      const res = await fetch(`${API_BASE_URL}/api/sessions`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setSessions(data.sessions ?? []);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to load";
+      setError(msg.includes("fetch")
+        ? "Cannot reach backend — make sure `python server.py` is running."
+        : msg);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadSessions(); }, [loadSessions]);
+
+  // ── Actions ──────────────────────────────────────────────────────────────
+
+  const handleSelect = (s: Session) => {
+    setSelected(s.id);
+    onSelectReport?.({ caseName: s.file_name, fileHash: s.sha256_hash, analysisSessionId: s.id });
+  };
+
+  const handleRename = async (id: string) => {
+    const name = editValue.trim();
+    if (!name) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/sessions/${id}/rename`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setSessions(prev => prev.map(s => s.id === id ? { ...s, file_name: name } : s));
+      toast({ title: "Renamed", description: `Session renamed to "${name}"` });
+    } catch (err) {
+      toast({ title: "Rename failed", description: String(err), variant: "destructive" });
+    } finally {
+      setEditing(null);
       setEditValue("");
-      toast({
-        title: "Case name updated",
-        description: `Case name updated to "${validation.data}"`,
-      });
-    } catch (error) {
-      console.error("Error updating case name:", error);
-      toast({
-        title: "Update failed",
-        description: error instanceof Error ? error.message : "Failed to update case name",
-        variant: "destructive",
-      });
     }
   };
 
-  const handleCancelEdit = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditingReport(null);
-    setEditValue("");
-  };
-
-  const handleDeleteFile = async (reportId: string, caseName: string) => {
+  const handleDelete = async (id: string, name: string) => {
     try {
-      await deleteFile(reportId);
-      toast({
-        title: "File deleted",
-        description: `"${caseName}" has been deleted successfully.`,
-      });
-    } catch (error) {
-      console.error("Error deleting file:", error);
-      toast({
-        title: "Delete failed",
-        description: error instanceof Error ? error.message : "Failed to delete file",
-        variant: "destructive",
-      });
+      const res = await fetch(`${API_BASE_URL}/api/sessions/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setSessions(prev => prev.filter(s => s.id !== id));
+      if (selected === id) setSelected(null);
+      toast({ title: "Deleted", description: `"${name}" removed.` });
+    } catch (err) {
+      toast({ title: "Delete failed", description: String(err), variant: "destructive" });
     }
   };
 
-  // If viewing an individual report, show that instead
-  if (viewingReport) {
-    return <IndividualReport report={viewingReport} onClose={handleCloseIndividualReport} />;
-  }
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="h-full flex flex-col bg-background p-6">
-      <Card className="flex-1 bg-background-secondary border-border">
-        <CardHeader className="border-b border-border">
-          <CardTitle className="text-foreground uppercase tracking-wide text-sm font-bold">
-            Previous Analysis Reports
-          </CardTitle>
-          <p className="text-muted-foreground text-sm">
-            Select a report to view detailed analysis results or click the report icon for individual AI-generated reports
-          </p>
+    <div className="h-full flex flex-col">
+      <Card className="flex-1 bg-background-secondary border-border overflow-hidden flex flex-col">
+        <CardHeader className="border-b border-border flex-row items-center justify-between py-3 px-5 flex-shrink-0">
+          <div>
+            <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <Database className="h-4 w-4 text-primary" />
+              Analysis History
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Stored locally in SQLite · {sessions.length} session{sessions.length !== 1 ? "s" : ""}
+            </p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={loadSessions} disabled={loading} className="gap-1.5 h-8">
+            <RefreshCcw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
         </CardHeader>
-        <CardContent className="p-0">
+
+        <CardContent className="p-0 flex-1 overflow-auto">
+          {/* Loading */}
           {loading && (
-            <div className="flex items-center justify-center p-8">
-              <Loader2 className="h-6 w-6 animate-spin mr-2" />
-              <span className="text-muted-foreground">Loading analysis reports...</span>
+            <div className="flex items-center justify-center p-10 gap-2 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Loading sessions…
             </div>
           )}
-          
-          {error && (
-            <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg m-4">
-              <p className="text-destructive text-sm">Error loading reports: {error}</p>
+
+          {/* Error */}
+          {!loading && error && (
+            <div className="m-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
+              {error}
             </div>
           )}
-          
-          {!loading && !error && reports.length === 0 && (
-            <div className="flex items-center justify-center p-8">
-              <div className="text-center">
-                <p className="text-muted-foreground mb-2">No analysis reports found</p>
-                <p className="text-sm text-muted-foreground">Upload files to see them appear here</p>
-              </div>
+
+          {/* Empty */}
+          {!loading && !error && sessions.length === 0 && (
+            <div className="flex flex-col items-center justify-center p-12 text-center gap-2">
+              <Database className="h-10 w-10 text-muted-foreground/30" />
+              <p className="text-muted-foreground text-sm">No sessions yet</p>
+              <p className="text-xs text-muted-foreground">Upload a malware sample to get started.</p>
             </div>
           )}
-          
-          {!loading && !error && reports.length > 0 && (
-            <div className="overflow-auto max-h-[calc(100vh-200px)]">
-              <Table>
+
+          {/* Table */}
+          {!loading && !error && sessions.length > 0 && (
+            <Table>
               <TableHeader>
-                <TableRow className="border-border hover:bg-background-tertiary/50">
-                  <TableHead className="text-muted-foreground font-semibold">Date</TableHead>
-                  <TableHead className="text-muted-foreground font-semibold">Case Name</TableHead>
-                  <TableHead className="text-muted-foreground font-semibold">Hash (SHA256)</TableHead>
-                  <TableHead className="text-muted-foreground font-semibold">Size</TableHead>
-                  <TableHead className="text-muted-foreground font-semibold">Threat Level</TableHead>
-                  <TableHead className="text-muted-foreground font-semibold">Status</TableHead>
-                  <TableHead className="text-muted-foreground font-semibold">Detections</TableHead>
-                  <TableHead className="text-muted-foreground font-semibold">Actions</TableHead>
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="text-xs font-semibold text-muted-foreground w-36">Date</TableHead>
+                  <TableHead className="text-xs font-semibold text-muted-foreground">File name</TableHead>
+                  <TableHead className="text-xs font-semibold text-muted-foreground hidden md:table-cell">SHA-256</TableHead>
+                  <TableHead className="text-xs font-semibold text-muted-foreground hidden sm:table-cell">Size</TableHead>
+                  <TableHead className="text-xs font-semibold text-muted-foreground">Threat</TableHead>
+                  <TableHead className="text-xs font-semibold text-muted-foreground text-center">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {reports.map((report) => (
+                {sessions.map(s => (
                   <TableRow
-                    key={report.id}
-                    className={`
-                      border-border transition-colors
-                      hover:bg-background-tertiary/50
-                      ${selectedReport === report.id ? 'bg-primary/10 border-primary/20' : ''}
-                    `}
+                    key={s.id}
+                    className={`border-border cursor-pointer transition-colors hover:bg-muted/40 ${selected === s.id ? "bg-primary/5" : ""}`}
+                    onClick={() => handleSelect(s)}
                   >
-                    <TableCell 
-                      className="text-foreground font-mono text-sm cursor-pointer hover:text-primary transition-colors"
-                      onClick={() => handleRowClick(report)}
-                    >
-                      {report.date}
+                    {/* Date */}
+                    <TableCell className="text-xs text-muted-foreground font-mono whitespace-nowrap">
+                      {formatDate(s.created_at)}
                     </TableCell>
-                     <TableCell 
-                       className="text-foreground cursor-pointer hover:text-primary transition-colors"
-                       onClick={() => handleRowClick(report)}
-                     >
-                       <div className="overflow-x-auto max-w-[200px]">
-                         {editingReport === report.id ? (
-                           <Input
-                             value={editValue}
-                             onChange={(e) => setEditValue(e.target.value)}
-                             className="h-8 text-sm bg-background border-primary/50 focus:border-primary"
-                             onClick={(e) => e.stopPropagation()}
-                             onKeyDown={(e) => {
-                               if (e.key === 'Enter') {
-                                 handleSaveCaseName(report.id, e as any);
-                               } else if (e.key === 'Escape') {
-                                 handleCancelEdit(e as any);
-                               }
-                             }}
-                             autoFocus
-                           />
-                         ) : (
-                           <span className="whitespace-nowrap cursor-pointer hover:text-primary transition-colors" onClick={(e) => handleEditCaseName(report, e)}>
-                             {report.caseName}
-                           </span>
-                         )}
-                       </div>
-                     </TableCell>
-                    <TableCell 
-                      className="text-muted-foreground font-mono text-xs cursor-pointer hover:text-primary transition-colors"
-                      onClick={() => handleRowClick(report)}
-                    >
-                      <div className="overflow-x-auto max-w-[150px]">
-                        <span className="whitespace-nowrap">{report.fileHash}</span>
+
+                    {/* File name / editable */}
+                    <TableCell className="max-w-[180px]" onClick={e => e.stopPropagation()}>
+                      {editing === s.id ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            value={editValue}
+                            onChange={e => setEditValue(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") handleRename(s.id);
+                              if (e.key === "Escape") { setEditing(null); setEditValue(""); }
+                            }}
+                            className="h-7 text-xs"
+                            autoFocus
+                          />
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleRename(s.id)}>
+                            <Check className="h-3.5 w-3.5 text-green-500" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setEditing(null); setEditValue(""); }}>
+                            <X className="h-3.5 w-3.5 text-destructive" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <span
+                          className="text-sm font-medium truncate block hover:text-primary transition-colors"
+                          title={s.file_name}
+                          onClick={() => handleSelect(s)}
+                        >
+                          {s.file_name}
+                        </span>
+                      )}
+                    </TableCell>
+
+                    {/* SHA-256 */}
+                    <TableCell className="hidden md:table-cell">
+                      <span className="text-xs font-mono text-muted-foreground">
+                        {s.sha256_hash ? `${s.sha256_hash.slice(0, 16)}…` : "—"}
+                      </span>
+                    </TableCell>
+
+                    {/* Size */}
+                    <TableCell className="hidden sm:table-cell text-xs text-muted-foreground">
+                      {formatSize(s.file_size)}
+                    </TableCell>
+
+                    {/* Threat level */}
+                    <TableCell>
+                      <span className={`text-xs font-semibold uppercase ${threatColor(s.threat_level)}`}>
+                        {s.threat_level ?? "—"}
+                      </span>
+                    </TableCell>
+
+                    {/* Actions */}
+                    <TableCell className="text-center" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-center gap-1">
+                        <Button
+                          size="icon" variant="ghost" className="h-7 w-7"
+                          title="View graph"
+                          onClick={() => handleSelect(s)}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="icon" variant="ghost" className="h-7 w-7"
+                          title="Rename"
+                          onClick={() => { setEditing(s.id); setEditValue(s.file_name); }}
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" title="Delete">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete session?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will permanently remove <strong>{s.file_name}</strong> from the local database. The analysis log files on disk are not affected.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={() => handleDelete(s.id, s.file_name)}
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </TableCell>
-                    <TableCell 
-                      className="text-foreground cursor-pointer hover:text-primary transition-colors"
-                      onClick={() => handleRowClick(report)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span>{report.size}</span>
-                        {report.analysisSessionId && (
-                          <Badge variant="outline" className="text-xs">
-                            Graph Available
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell 
-                      className="cursor-pointer hover:text-primary transition-colors"
-                      onClick={() => handleRowClick(report)}
-                    >
-                      <Badge variant={getThreatLevelVariant(report.threatLevel) as any}>
-                        {report.threatLevel}
-                      </Badge>
-                    </TableCell>
-                    <TableCell 
-                      className="cursor-pointer hover:text-primary transition-colors"
-                      onClick={() => handleRowClick(report)}
-                    >
-                      <Badge variant={getStatusVariant(report.status) as any}>
-                        {report.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell 
-                      className="text-foreground font-semibold cursor-pointer hover:text-primary transition-colors"
-                      onClick={() => handleRowClick(report)}
-                    >
-                      {report.detections}
-                    </TableCell>
-                     <TableCell className="text-center">
-                       <div className="flex gap-1 justify-center">
-                         {editingReport === report.id ? (
-                           <>
-                             <Button
-                               size="sm"
-                               variant="ghost"
-                               onClick={(e) => handleSaveCaseName(report.id, e)}
-                               className="h-8 w-8 p-0 hover:bg-green-500/20 text-green-600"
-                             >
-                               <Check className="h-4 w-4" />
-                             </Button>
-                             <Button
-                               size="sm"
-                               variant="ghost"
-                               onClick={handleCancelEdit}
-                               className="h-8 w-8 p-0 hover:bg-destructive/20 text-destructive"
-                             >
-                               <X className="h-4 w-4" />
-                             </Button>
-                           </>
-                         ) : (
-                           <>
-                             <Button
-                               size="sm"
-                               variant="ghost"
-                               onClick={(e) => handleEditCaseName(report, e)}
-                               className="h-8 w-8 p-0 hover:bg-primary/20"
-                             >
-                               <Edit3 className="h-4 w-4" />
-                             </Button>
-                             <Button
-                               size="sm"
-                               variant="ghost"
-                               onClick={(e) => handleViewReport(report, e)}
-                               className="h-8 w-8 p-0 hover:bg-primary/20"
-                               title={report.analysisSessionId ? "View Graph Analysis" : "View Report"}
-                             >
-                               <Eye className="h-4 w-4" />
-                             </Button>
-                             <Button
-                               size="sm"
-                               variant="ghost"
-                               onClick={(e) => handleViewIndividualReport(report, e)}
-                               className="h-8 w-8 p-0 hover:bg-primary/20"
-                               title="View Individual Report"
-                             >
-                               <FileText className="h-4 w-4" />
-                             </Button>
-                             <Button
-                               size="sm"
-                               variant="ghost"
-                               onClick={(e) => e.stopPropagation()}
-                               className="h-8 w-8 p-0 hover:bg-primary/20"
-                             >
-                               <Download className="h-4 w-4" />
-                             </Button>
-                             <AlertDialog>
-                               <AlertDialogTrigger asChild>
-                                 <Button
-                                   size="sm"
-                                   variant="ghost"
-                                   onClick={(e) => e.stopPropagation()}
-                                   className="h-8 w-8 p-0 hover:bg-destructive/20 text-destructive"
-                                 >
-                                   <Trash2 className="h-4 w-4" />
-                                 </Button>
-                               </AlertDialogTrigger>
-                               <AlertDialogContent>
-                                 <AlertDialogHeader>
-                                   <AlertDialogTitle>Delete Analysis Report</AlertDialogTitle>
-                                   <AlertDialogDescription>
-                                     Are you sure you want to delete "{report.caseName}"? This action cannot be undone and will permanently remove the file and its analysis data.
-                                   </AlertDialogDescription>
-                                 </AlertDialogHeader>
-                                 <AlertDialogFooter>
-                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                   <AlertDialogAction
-                                     onClick={() => handleDeleteFile(report.id, report.caseName)}
-                                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                   >
-                                     Delete
-                                   </AlertDialogAction>
-                                 </AlertDialogFooter>
-                               </AlertDialogContent>
-                             </AlertDialog>
-                           </>
-                         )}
-                       </div>
-                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-            </div>
           )}
         </CardContent>
       </Card>

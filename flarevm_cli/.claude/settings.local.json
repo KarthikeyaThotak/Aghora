@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /c/Users/karth/Projects/Cybersecurity/Aghora/Aghora && python -c \"from flarevm_cli.cli import main; main\\(['info']\\)\" 2>&1)",
+      "Bash(cd /c/Users/karth/Projects/Cybersecurity/Aghora/Aghora && python -c \"from flarevm_cli.config import get_flarevm_mcp_url, get_anthropic_api_key; print\\('MCP URL:', repr\\(get_flarevm_mcp_url\\(\\)\\)\\); key = get_anthropic_api_key\\(\\); print\\('API Key set:', bool\\(key\\), 'len:', len\\(key\\)\\)\" 2>&1)",
+      "Bash(cd /c/Users/karth/Projects/Cybersecurity/Aghora/Aghora && python -c \"from flarevm_cli.mcp_client import MCPClient; c = MCPClient\\(\\); print\\(c.list_tools\\(\\)\\)\" 2>&1)",
+      "Bash(cd /c/Users/karth/Projects/Cybersecurity/Aghora/Aghora && python -m flarevm_cli info 2>&1)",
+      "Bash(cd /c/Users/karth/Projects/Cybersecurity/Aghora/Aghora && python -c \"from flarevm_cli.config import get_anthropic_api_key; key = get_anthropic_api_key\\(\\); print\\('API key loaded, length:', len\\(key\\)\\)\" 2>&1)",
+      "Bash(head:*)",
+      "Bash(cd /c/Users/karth/Projects/Cybersecurity/Aghora/Aghora && python -m flarevm_cli chat \"Get the system info of the remote machine\" 2>&1)"
+    ]
+  }
+}
