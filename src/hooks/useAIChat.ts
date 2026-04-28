@@ -106,4 +106,37 @@ export const useAIChat = (
           data.response || 'I apologize, but I encountered an error processing your request.';
 
         const aiMessage: ChatMessage = {
-  
+          id: (Date.now() + 1).toString(),
+          content: aiContent,
+          sender: 'ai',
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, aiMessage]);
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to send message';
+        setError(errorMessage);
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            content: `I'm sorry, I encountered an error: ${errorMessage}. Please make sure the analysis server is running.`,
+            sender: 'ai',
+            timestamp: new Date(),
+          },
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [baseUrl],
+  );
+
+  const clearMessages = useCallback(() => {
+    setMessages([GREETING]);
+    loadedSessionRef.current = null;
+  }, []);
+
+  return { messages, loading, error, sendMessage, clearMessages };
+};

@@ -189,3 +189,6 @@ export const AiChat = ({ onClose, sessionId = "default" }: AiChatProps) => {
           </Button>
         </div>
       </div>
+    </div>
+  );
+};

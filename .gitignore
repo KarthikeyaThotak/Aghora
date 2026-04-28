@@ -46,3 +46,16 @@ analysis_logs/
 uploads/
 python_agent/aghora.db
 python_agent/analysis_logs/
+# Virtual environments
+.venv/
+# Ghidra/pestudio CLI tool binaries (too large, install separately)
+python_agent/ghidra_cli/
+python_agent/pestudio_cli/
+# EICAR and test files
+*.com
+# Old Firebase docs
+FIREBASE_*.md
+FIRESTORE_*.md
+DEMO_SETUP.md
+# PPTX exports
+*.pptx
